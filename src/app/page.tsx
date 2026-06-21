@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 type Position = {
   ticker: string;
   buyPrice: number;
+  initialCash: number;
 };
 
 type QuoteMap = Record<string, number>;
@@ -14,14 +15,14 @@ const DEFAULT_CASH_PER_POSITION = 20_000;
 const STORAGE_KEY = "live-portfolio-tracker:v1";
 
 const STARTING_POSITIONS: Position[] = [
-  { ticker: "CORZ", buyPrice: 29.16 },
-  { ticker: "INOD", buyPrice: 95.5 },
-  { ticker: "TSSI", buyPrice: 13.56 },
-  { ticker: "AISP", buyPrice: 2.9 },
-  { ticker: "HYLN", buyPrice: 8.1 },
-  { ticker: "ASTS", buyPrice: 80.66 },
-  { ticker: "LUNR", buyPrice: 22.85 },
-  { ticker: "RKLB", buyPrice: 107.24 },
+  { ticker: "CORZ", buyPrice: 29.16, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "INOD", buyPrice: 95.5, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "TSSI", buyPrice: 13.56, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "AISP", buyPrice: 2.9, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "HYLN", buyPrice: 8.1, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "ASTS", buyPrice: 80.66, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "LUNR", buyPrice: 22.85, initialCash: DEFAULT_CASH_PER_POSITION },
+  { ticker: "RKLB", buyPrice: 107.24, initialCash: DEFAULT_CASH_PER_POSITION },
 ];
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -63,8 +64,16 @@ export default function Home() {
         .map((item) => ({
           ticker: String(item.ticker ?? "").toUpperCase().trim(),
           buyPrice: Number(item.buyPrice),
+          initialCash: Number(item.initialCash) || DEFAULT_CASH_PER_POSITION,
         }))
-        .filter((item) => item.ticker && Number.isFinite(item.buyPrice) && item.buyPrice > 0);
+        .filter(
+          (item) =>
+            item.ticker &&
+            Number.isFinite(item.buyPrice) &&
+            item.buyPrice > 0 &&
+            Number.isFinite(item.initialCash) &&
+            item.initialCash > 0,
+        );
 
       return cleaned.length ? cleaned : STARTING_POSITIONS;
     } catch {
@@ -174,7 +183,7 @@ export default function Home() {
         return prev;
       }
 
-      return [...prev, { ticker, buyPrice }];
+      return [...prev, { ticker, buyPrice, initialCash: cashPerPosition }];
     });
 
     setNewTicker("");
@@ -185,17 +194,31 @@ export default function Home() {
     setPositions((prev) => prev.filter((item) => item.ticker !== ticker));
   };
 
+  const updateInitialCash = (ticker: string, nextCash: number) => {
+    setPositions((prev) =>
+      prev.map((item) => {
+        if (item.ticker !== ticker) {
+          return item;
+        }
+
+        return {
+          ...item,
+          initialCash: nextCash > 0 ? nextCash : item.initialCash,
+        };
+      }),
+    );
+  };
+
   const rows = useMemo(() => {
     return positions.map((position) => {
-      const sharesOwned = cashPerPosition / position.buyPrice;
+      const sharesOwned = position.initialCash / position.buyPrice;
       const livePrice = quotes[position.ticker] ?? position.buyPrice;
       const currentValue = livePrice * sharesOwned;
-      const profitLoss = currentValue - cashPerPosition;
-      const profitLossPercent = cashPerPosition === 0 ? 0 : profitLoss / cashPerPosition;
+      const profitLoss = currentValue - position.initialCash;
+      const profitLossPercent = position.initialCash === 0 ? 0 : profitLoss / position.initialCash;
 
       return {
         ...position,
-        initialCash: cashPerPosition,
         sharesOwned,
         livePrice,
         currentValue,
@@ -203,7 +226,7 @@ export default function Home() {
         profitLossPercent,
       };
     });
-  }, [positions, cashPerPosition, quotes]);
+  }, [positions, quotes]);
 
   const totals = useMemo(() => {
     return rows.reduce(
@@ -237,7 +260,7 @@ export default function Home() {
         <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_2fr]">
           <article>
             <label htmlFor="cashPerPosition" className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Initial Cash Per Ticker
+              Default Initial Cash (New Tickers)
             </label>
             <input
               id="cashPerPosition"
@@ -249,7 +272,7 @@ export default function Home() {
               className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:ring"
             />
             <p className="mt-2 text-xs text-slate-500">
-              Shares are auto-calculated as Initial Cash / Buy Price for every ticker.
+              New rows use this value. Edit Initial Cash in the table to recalculate each ticker instantly.
             </p>
           </article>
 
@@ -322,7 +345,16 @@ export default function Home() {
                 {rows.map((row) => (
                   <tr key={row.ticker} className="border-t border-slate-100">
                     <td className="px-4 py-3 font-semibold tracking-wide">{row.ticker}</td>
-                    <td className="px-4 py-3 text-right">{currency.format(row.initialCash)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <input
+                        type="number"
+                        min="1"
+                        step="100"
+                        value={Number.isFinite(row.initialCash) ? row.initialCash : ""}
+                        onChange={(event) => updateInitialCash(row.ticker, Number(event.target.value))}
+                        className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm outline-none ring-cyan-200 focus:ring"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-right">{currency.format(row.buyPrice)}</td>
                     <td className="px-4 py-3 text-right">{sharesFormat.format(row.sharesOwned)}</td>
                     <td className="px-4 py-3 text-right">{currency.format(row.livePrice)}</td>
