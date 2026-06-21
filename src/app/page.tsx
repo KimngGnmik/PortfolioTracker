@@ -150,12 +150,12 @@ export default function Home() {
               setNewBuyPrice(String(suggestedPrice));
             }
           } else {
-            setLookupMessage("No live price found for that ticker yet.");
+            setLookupMessage("No live price found yet. You can still enter a price manually.");
           }
         })
         .catch(() => {
           if (!controller.signal.aborted) {
-            setLookupMessage("Could not load live price yet.");
+            setLookupMessage("Live quote unavailable right now. Enter a price manually or try again.");
           }
         })
         .finally(() => {
@@ -226,7 +226,9 @@ export default function Home() {
     event.preventDefault();
 
     const ticker = newTicker.trim().toUpperCase();
-    const buyPrice = Number(newBuyPrice);
+    const buyPrice = Number(
+      newBuyPrice || (suggestedNewBuyPrice !== null && !isBuyPriceManual ? String(suggestedNewBuyPrice) : ""),
+    );
 
     if (!ticker || !Number.isFinite(buyPrice) || buyPrice <= 0) {
       return;
@@ -264,6 +266,16 @@ export default function Home() {
       }),
     );
   };
+
+  const suggestedNewBuyPrice = (() => {
+    const ticker = newTicker.trim().toUpperCase();
+
+    if (!ticker) {
+      return null;
+    }
+
+    return quotes[ticker] ?? positions.find((item) => item.ticker === ticker)?.buyPrice ?? null;
+  })();
 
   const rows = useMemo(() => {
     return positions.map((position) => {
@@ -355,7 +367,7 @@ export default function Home() {
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
               Buy Price
               <input
-                value={newBuyPrice}
+                value={newBuyPrice || (isBuyPriceManual ? newBuyPrice : suggestedNewBuyPrice !== null ? String(suggestedNewBuyPrice) : "")}
                 onChange={(event) => {
                   setNewBuyPrice(event.target.value);
                   setIsBuyPriceManual(true);
@@ -367,7 +379,12 @@ export default function Home() {
                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:ring"
               />
               <span className="mt-2 block text-xs text-slate-500">
-                {isLookupLoading ? "Loading live quote..." : lookupMessage ?? "Type a ticker and the current price will fill in."}
+                {isLookupLoading
+                  ? "Loading live quote..."
+                  : lookupMessage ??
+                    (suggestedNewBuyPrice !== null
+                      ? `Current price: ${currency.format(suggestedNewBuyPrice)}`
+                      : "Type a ticker and the current price will fill in.")}
               </span>
             </label>
 
