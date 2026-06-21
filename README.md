@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Live Portfolio Tracker
 
-## Getting Started
+This project is a live stock portfolio dashboard built with Next.js.
 
-First, run the development server:
+It includes:
+
+- A portfolio table with your sample holdings
+- Auto-refreshing live prices every 30 seconds
+- Current value and profit/loss per holding
+- Totals for cash, current value, and total P/L
+
+## Run Locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy So You Can Access Anywhere
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The easiest deploy is Vercel.
 
-## Learn More
+1. Push this folder to a GitHub repository.
+2. Go to https://vercel.com/new
+3. Import your repository.
+4. Keep defaults and click Deploy.
+5. Open your Vercel URL from any device.
 
-To learn more about Next.js, take a look at the following resources:
+## Why Not GitHub Pages
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+GitHub Pages is static hosting. This app needs a server endpoint for live quotes and secure API key handling.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Vercel: supports server routes and encrypted environment variables.
+- GitHub Pages: no server runtime, so API keys would be exposed or you must add a separate backend service.
 
-## Deploy on Vercel
+If you really want GitHub Pages, use it only for frontend and host quotes on a separate backend such as Cloudflare Workers, Render, or Railway.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## API Key Setup
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For best reliability, use Twelve Data.
+
+1. Copy .env.example to .env.local
+2. Set TWELVE_DATA_API_KEY with your key
+3. Redeploy (or restart local dev server)
+
+## Portfolio Data
+
+The current holdings are defined in src/app/page.tsx in STARTING_POSITIONS.
+
+You can change ticker, buy price, shares, and initial cash there.
+
+## Notes
+
+- The quote endpoint is in src/app/api/quotes/route.ts.
+- It uses Twelve Data when TWELVE_DATA_API_KEY is set.
+- It falls back to public quote page parsing when API quotes are unavailable.
