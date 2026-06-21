@@ -4,24 +4,24 @@ import { useEffect, useMemo, useState } from "react";
 
 type Position = {
   ticker: string;
-  initialCash: number;
   buyPrice: number;
-  sharesOwned: number;
 };
 
 type QuoteMap = Record<string, number>;
 
 const REFRESH_MS = 30_000;
+const DEFAULT_CASH_PER_POSITION = 20_000;
+const STORAGE_KEY = "live-portfolio-tracker:v1";
 
 const STARTING_POSITIONS: Position[] = [
-  { ticker: "CORZ", initialCash: 20000, buyPrice: 29.16, sharesOwned: 685.87 },
-  { ticker: "INOD", initialCash: 20000, buyPrice: 95.5, sharesOwned: 209.42 },
-  { ticker: "TSSI", initialCash: 20000, buyPrice: 13.56, sharesOwned: 1474.93 },
-  { ticker: "AISP", initialCash: 20000, buyPrice: 2.9, sharesOwned: 6896.55 },
-  { ticker: "HYLN", initialCash: 20000, buyPrice: 8.1, sharesOwned: 2469.14 },
-  { ticker: "ASTS", initialCash: 20000, buyPrice: 80.66, sharesOwned: 247.95 },
-  { ticker: "LUNR", initialCash: 20000, buyPrice: 22.85, sharesOwned: 875.27 },
-  { ticker: "RKLB", initialCash: 20000, buyPrice: 107.24, sharesOwned: 186.5 },
+  { ticker: "CORZ", buyPrice: 29.16 },
+  { ticker: "INOD", buyPrice: 95.5 },
+  { ticker: "TSSI", buyPrice: 13.56 },
+  { ticker: "AISP", buyPrice: 2.9 },
+  { ticker: "HYLN", buyPrice: 8.1 },
+  { ticker: "ASTS", buyPrice: 80.66 },
+  { ticker: "LUNR", buyPrice: 22.85 },
+  { ticker: "RKLB", buyPrice: 107.24 },
 ];
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -43,17 +43,83 @@ const percentFormat = new Intl.NumberFormat("en-US", {
 });
 
 export default function Home() {
+  const [positions, setPositions] = useState<Position[]>(() => {
+    if (typeof window === "undefined") {
+      return STARTING_POSITIONS;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return STARTING_POSITIONS;
+      }
+
+      const parsed: { positions?: Position[] } = JSON.parse(raw);
+      if (!Array.isArray(parsed.positions) || !parsed.positions.length) {
+        return STARTING_POSITIONS;
+      }
+
+      const cleaned = parsed.positions
+        .map((item) => ({
+          ticker: String(item.ticker ?? "").toUpperCase().trim(),
+          buyPrice: Number(item.buyPrice),
+        }))
+        .filter((item) => item.ticker && Number.isFinite(item.buyPrice) && item.buyPrice > 0);
+
+      return cleaned.length ? cleaned : STARTING_POSITIONS;
+    } catch {
+      return STARTING_POSITIONS;
+    }
+  });
+
+  const [cashPerPosition, setCashPerPosition] = useState(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_CASH_PER_POSITION;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return DEFAULT_CASH_PER_POSITION;
+      }
+
+      const parsed: { cashPerPosition?: number } = JSON.parse(raw);
+      return typeof parsed.cashPerPosition === "number" && parsed.cashPerPosition > 0
+        ? parsed.cashPerPosition
+        : DEFAULT_CASH_PER_POSITION;
+    } catch {
+      return DEFAULT_CASH_PER_POSITION;
+    }
+  });
+  const [newTicker, setNewTicker] = useState("");
+  const [newBuyPrice, setNewBuyPrice] = useState("");
   const [quotes, setQuotes] = useState<QuoteMap>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        positions,
+        cashPerPosition,
+      }),
+    );
+  }, [positions, cashPerPosition]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadQuotes = async () => {
+      if (!positions.length) {
+        setQuotes({});
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const symbols = STARTING_POSITIONS.map((p) => p.ticker).join(",");
+        const symbols = positions.map((p) => p.ticker).join(",");
         const response = await fetch(`/api/quotes?symbols=${symbols}`, {
           cache: "no-store",
         });
@@ -91,24 +157,53 @@ export default function Home() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [positions]);
+
+  const addPosition = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const ticker = newTicker.trim().toUpperCase();
+    const buyPrice = Number(newBuyPrice);
+
+    if (!ticker || !Number.isFinite(buyPrice) || buyPrice <= 0) {
+      return;
+    }
+
+    setPositions((prev) => {
+      if (prev.some((item) => item.ticker === ticker)) {
+        return prev;
+      }
+
+      return [...prev, { ticker, buyPrice }];
+    });
+
+    setNewTicker("");
+    setNewBuyPrice("");
+  };
+
+  const removePosition = (ticker: string) => {
+    setPositions((prev) => prev.filter((item) => item.ticker !== ticker));
+  };
 
   const rows = useMemo(() => {
-    return STARTING_POSITIONS.map((position) => {
+    return positions.map((position) => {
+      const sharesOwned = cashPerPosition / position.buyPrice;
       const livePrice = quotes[position.ticker] ?? position.buyPrice;
-      const currentValue = livePrice * position.sharesOwned;
-      const profitLoss = currentValue - position.initialCash;
-      const profitLossPercent = position.initialCash === 0 ? 0 : profitLoss / position.initialCash;
+      const currentValue = livePrice * sharesOwned;
+      const profitLoss = currentValue - cashPerPosition;
+      const profitLossPercent = cashPerPosition === 0 ? 0 : profitLoss / cashPerPosition;
 
       return {
         ...position,
+        initialCash: cashPerPosition,
+        sharesOwned,
         livePrice,
         currentValue,
         profitLoss,
         profitLossPercent,
       };
     });
-  }, [quotes]);
+  }, [positions, cashPerPosition, quotes]);
 
   const totals = useMemo(() => {
     return rows.reduce(
@@ -139,6 +234,58 @@ export default function Home() {
           {error ? <p className="mt-2 text-xs font-medium text-rose-700">{error}</p> : null}
         </header>
 
+        <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-[1fr_2fr]">
+          <article>
+            <label htmlFor="cashPerPosition" className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Initial Cash Per Ticker
+            </label>
+            <input
+              id="cashPerPosition"
+              type="number"
+              min="1"
+              step="100"
+              value={cashPerPosition}
+              onChange={(event) => setCashPerPosition(Number(event.target.value) || 0)}
+              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:ring"
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              Shares are auto-calculated as Initial Cash / Buy Price for every ticker.
+            </p>
+          </article>
+
+          <form onSubmit={addPosition} className="grid gap-3 sm:grid-cols-[1.2fr_1fr_auto] sm:items-end">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Ticker
+              <input
+                value={newTicker}
+                onChange={(event) => setNewTicker(event.target.value)}
+                placeholder="NVDA"
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase outline-none ring-cyan-200 focus:ring"
+              />
+            </label>
+
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Buy Price
+              <input
+                value={newBuyPrice}
+                onChange={(event) => setNewBuyPrice(event.target.value)}
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="120.50"
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:ring"
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="h-10 rounded-lg bg-cyan-700 px-4 text-sm font-medium text-white transition hover:bg-cyan-800"
+            >
+              Add Ticker
+            </button>
+          </form>
+        </section>
+
         <section className="grid gap-3 sm:grid-cols-3">
           <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs uppercase tracking-wide text-slate-500">Initial Cash</p>
@@ -168,6 +315,7 @@ export default function Home() {
                   <th className="px-4 py-3 text-right">Live Price</th>
                   <th className="px-4 py-3 text-right">Current Value</th>
                   <th className="px-4 py-3 text-right">Profit / Loss</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -186,6 +334,15 @@ export default function Home() {
                     >
                       {currency.format(row.profitLoss)} ({percentFormat.format(row.profitLossPercent)})
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => removePosition(row.ticker)}
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      >
+                        Remove
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -202,6 +359,7 @@ export default function Home() {
                   >
                     {currency.format(totals.profitLoss)}
                   </td>
+                  <td className="px-4 py-3 text-right">-</td>
                 </tr>
               </tfoot>
             </table>
