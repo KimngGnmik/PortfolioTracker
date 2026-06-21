@@ -102,6 +102,9 @@ export default function Home() {
   });
   const [newTicker, setNewTicker] = useState("");
   const [newBuyPrice, setNewBuyPrice] = useState("");
+  const [isBuyPriceManual, setIsBuyPriceManual] = useState(false);
+  const [isLookupLoading, setIsLookupLoading] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<QuoteMap>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +119,57 @@ export default function Home() {
       }),
     );
   }, [positions, cashPerPosition]);
+
+  useEffect(() => {
+    const ticker = newTicker.trim().toUpperCase();
+
+    if (!ticker) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setIsLookupLoading(true);
+      setLookupMessage("Looking up live price...");
+
+      void fetch(`/api/quotes?symbols=${encodeURIComponent(ticker)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error("Quote lookup failed.");
+          }
+
+          const data: { quotes?: QuoteMap } = await response.json();
+          const suggestedPrice = data.quotes?.[ticker];
+
+          if (typeof suggestedPrice === "number") {
+            setLookupMessage(`Current price: ${currency.format(suggestedPrice)}`);
+            if (!isBuyPriceManual) {
+              setNewBuyPrice(String(suggestedPrice));
+            }
+          } else {
+            setLookupMessage("No live price found for that ticker yet.");
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setLookupMessage("Could not load live price yet.");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setIsLookupLoading(false);
+          }
+        });
+    }, 400);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [newTicker, isBuyPriceManual]);
 
   useEffect(() => {
     let isMounted = true;
@@ -188,6 +242,8 @@ export default function Home() {
 
     setNewTicker("");
     setNewBuyPrice("");
+    setIsBuyPriceManual(false);
+    setLookupMessage(null);
   };
 
   const removePosition = (ticker: string) => {
@@ -281,7 +337,16 @@ export default function Home() {
               Ticker
               <input
                 value={newTicker}
-                onChange={(event) => setNewTicker(event.target.value)}
+                onChange={(event) => {
+                  const nextTicker = event.target.value;
+                  setNewTicker(nextTicker);
+                  setIsBuyPriceManual(false);
+                  if (!nextTicker.trim()) {
+                    setNewBuyPrice("");
+                    setLookupMessage(null);
+                    setIsLookupLoading(false);
+                  }
+                }}
                 placeholder="NVDA"
                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase outline-none ring-cyan-200 focus:ring"
               />
@@ -291,13 +356,19 @@ export default function Home() {
               Buy Price
               <input
                 value={newBuyPrice}
-                onChange={(event) => setNewBuyPrice(event.target.value)}
+                onChange={(event) => {
+                  setNewBuyPrice(event.target.value);
+                  setIsBuyPriceManual(true);
+                }}
                 type="number"
                 min="0.01"
                 step="0.01"
                 placeholder="120.50"
                 className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:ring"
               />
+              <span className="mt-2 block text-xs text-slate-500">
+                {isLookupLoading ? "Loading live quote..." : lookupMessage ?? "Type a ticker and the current price will fill in."}
+              </span>
             </label>
 
             <button
